@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-eval-ragas"
-version = "0.1.0"
-description = "RAGAS evaluation pipeline for RAG application benchmarking"
+version = "0.2.0"
+description = "RAGAS evaluation pipeline with real MCP RAG retrieval integration"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,8 @@ dependencies = [
     "datasets",
     "openai",
     "pytest",
+    "mcp",
+    "python-dotenv",
 ]
 
 [tool.pytest.ini_options]

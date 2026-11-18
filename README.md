@@ -1,8 +1,8 @@
 # rag-eval-ragas
 
-Evaluation pipeline for Retrieval-Augmented Generation (RAG) applications using [Ragas](https://github.com/explodinggradients/ragas).
+Evaluation pipeline for Retrieval-Augmented Generation (RAG) applications using [Ragas](https://github.com/explodinggradients/ragas) integrated with a live **Model Context Protocol (MCP)** RAG server.
 
-This repository mirrors the official RAGAS quickstart structure, providing an automated evaluation runner, sample datasets, placeholder RAG pipeline integration, and CI-ready smoke tests.
+This project queries your real MCP retrieval server dynamically for context chunks, builds dummy concatenated answers (ready for LLM generation), and benchmarks retrieval/generation quality across 4 core RAGAS metrics.
 
 ---
 
@@ -10,19 +10,67 @@ This repository mirrors the official RAGAS quickstart structure, providing an au
 
 ```
 rag-eval-ragas/
-├── rag.py                     # Simulated RAG pipeline (to be replaced with MCP/production client)
-├── evals.py                   # Evaluation runner using Ragas metrics
-├── pyproject.toml             # Project dependencies (ragas, datasets, openai, pytest)
-├── README.md                  # Documentation and metric guide
-├── .gitignore                 # Standard Python and secret ignore rules
+├── rag.py                     # MCP RAG client (connects to MCP server, calls retrieval tool)
+├── evals.py                   # Dynamic RAGAS evaluation runner
+├── pyproject.toml             # Project dependencies (ragas, datasets, openai, pytest, mcp, python-dotenv)
+├── .env.example               # Environment variable configuration template
+├── README.md                  # Setup, server launch, and evaluation guide
+├── .gitignore                 # Standard Python, virtualenv, and .env ignore rules
 ├── evals/
 │   ├── datasets/
-│   │   └── sample.jsonl       # 5 sample test cases with input, response, context & reference
+│   │   └── sample.jsonl       # Seed evaluation questions and ground truth references
 │   └── experiments/
-│       └── .gitkeep           # Run outputs (run_<timestamp>.csv)
+│       └── .gitkeep           # Run benchmark CSV artifacts (run_<timestamp>.csv)
 └── tests/
-    └── test_smoke.py          # Smoke tests (imports and schema validation, zero API cost)
+    └── test_smoke.py          # CI smoke tests (imports, schemas & mocked MCP calls)
 ```
+
+---
+
+## Configuration & Environment Variables
+
+Create a `.env` file in the project root (you can copy `.env.example`):
+
+```bash
+cp .env.example .env
+```
+
+Set the required environment variables in `.env`:
+
+| Variable | Required | Default | Description |
+| :--- | :---: | :--- | :--- |
+| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key used by Ragas LLM evaluators. |
+| `MCP_SERVER_URL` | **Yes** | `http://localhost:8000/mcp` | SSE endpoint URL or stdio command for your MCP server. |
+| `MCP_TOOL_NAME` | No | Auto-detected | Specific retrieval tool name (auto-discovers `retrieve`, `search`, etc.). |
+| `MCP_TIMEOUT` | No | `30` | Per-query timeout in seconds. |
+
+### Example `.env`
+
+```ini
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx
+MCP_SERVER_URL=http://localhost:8000/mcp
+MCP_TIMEOUT=30
+```
+
+> **Note**: If your MCP server runs via stdio rather than HTTP SSE, you can set `MCP_SERVER_URL` to the launch command, e.g.:
+> ```ini
+> MCP_SERVER_URL=python server.py
+> ```
+
+---
+
+## Starting Your MCP RAG Server
+
+Before running evaluations, ensure your MCP server is running and accessible:
+
+```bash
+# In your MCP server directory / environment:
+python server.py
+```
+
+*By default, the client expects the server to listen on `http://localhost:8000/mcp` or as configured in `MCP_SERVER_URL`.*
+
+If the server is unreachable or offline, `rag.py` and `evals.py` will catch the error and display an actionable troubleshooting message rather than crashing with an unhandled exception.
 
 ---
 
@@ -31,13 +79,12 @@ rag-eval-ragas/
 ### 1. Prerequisites
 - Python 3.10+
 - An OpenAI API key
+- A running MCP RAG server
 
-### 2. Install Dependencies
-
-Using `pip` in a virtual environment:
+### 2. Setup Virtual Environment
 
 ```bash
-# Create and activate a virtual environment
+# Create virtual environment
 python -m venv .venv
 
 # Windows (PowerShell):
@@ -46,84 +93,56 @@ python -m venv .venv
 # Linux / macOS:
 source .venv/bin/activate
 
-# Install dependencies
+# Install all dependencies (including mcp and python-dotenv)
 pip install -e .
 ```
 
-Alternatively, install directly via `pip`:
+Or install dependencies directly:
 ```bash
-pip install ragas datasets openai pytest
+pip install ragas datasets openai pytest mcp python-dotenv
 ```
-
-### 3. Configure OpenAI API Key
-
-The evaluation runner requires `OPENAI_API_KEY` in the environment to calculate LLM-assisted metrics:
-
-- **Windows (PowerShell)**:
-  ```powershell
-  $env:OPENAI_API_KEY = "your-openai-api-key"
-  ```
-- **Windows (CMD)**:
-  ```cmd
-  set OPENAI_API_KEY=your-openai-api-key
-  ```
-- **macOS / Linux**:
-  ```bash
-  export OPENAI_API_KEY="your-openai-api-key"
-  ```
 
 ---
 
 ## Running Evaluations
 
-To run the RAGAS evaluation against `evals/datasets/sample.jsonl`:
+Once your MCP server is up and `.env` is configured:
 
 ```bash
 python evals.py
 ```
 
-### What happens during execution:
-1. **Environment Check**: Verifies `OPENAI_API_KEY` is present. If missing, it exits with a clear instruction message.
-2. **Dataset Ingestion**: Loads JSONL samples into a Hugging Face `Dataset` with standard fields (`user_input`, `response`, `retrieved_contexts`, `reference`).
-3. **Metric Calculation**: Evaluates the dataset across the 4 core RAGAS metrics.
-4. **Summary Table**: Prints a console table with **Mean Score** and **Min Score** for each metric.
-5. **CSV Artifact**: Saves full per-row scores to `evals/experiments/run_<YYYYMMDD_HHMMSS>.csv`.
-6. **Debugging Flags**: Flags and prints detailed diagnostics for any row where:
-   - `faithfulness < 0.7`
-   - `context_recall < 0.8`
+### Execution Flow:
+1. **Validation**: Confirms `OPENAI_API_KEY` is set.
+2. **Dynamic Ingestion**: Reads question-reference pairs from `evals/datasets/sample.jsonl`.
+3. **Live MCP Querying**: For every question, calls `rag.query(question)` with a 30s timeout to fetch live retrieved chunks.
+4. **Answer Synthesis**: Formulates dummy answers by concatenating the top 3 retrieved chunks.
+5. **Ragas Evaluation**: Computes the 4 core metrics using the OpenAI backend.
+6. **Summary Table**: Prints a summary with Mean Score and Min Score per metric.
+7. **CSV Export**: Writes detailed per-sample scores to `evals/experiments/run_<YYYYMMDD_HHMMSS>.csv`.
+8. **Threshold Alerts**: Flags any sample where `faithfulness < 0.7` or `context_recall < 0.8` for debugging.
 
 ---
 
-## RAGAS Metrics Explained
+## RAGAS Metrics Reference
 
-The evaluation suite benchmarks RAG quality across retrieval and generation:
-
-| Metric | Target Dimension | Description | Typical Target |
-| :--- | :--- | :--- | :--- |
-| **`faithfulness`** | Generation (Hallucination) | Measures the factual consistency of the generated `response` against the `retrieved_contexts`. Evaluates whether every claim in the response is supported by the retrieved passages. | $\ge 0.70$ |
-| **`answer_relevancy`** | Generation (Conciseness) | Measures how directly and completely the generated `response` addresses the `user_input`. Generates reverse questions from the response and computes similarity with the prompt. | $\ge 0.80$ |
-| **`context_precision`** | Retrieval (Signal-to-Noise) | Measures whether relevant chunks in `retrieved_contexts` are ranked at the top. Higher precision indicates that useful information is prioritized over noise. | $\ge 0.80$ |
-| **`context_recall`** | Retrieval (Coverage) | Measures whether all necessary facts from the `reference` ground truth were successfully retrieved in `retrieved_contexts`. | $\ge 0.80$ |
+| Metric | Target | Description |
+| :--- | :---: | :--- |
+| **`faithfulness`** | $\ge 0.70$ | Factual consistency: checks whether claims in the generated response are grounded in the retrieved context chunks. |
+| **`answer_relevancy`** | $\ge 0.80$ | Relevance: evaluates whether the response directly addresses the user question without superfluous noise. |
+| **`context_precision`** | $\ge 0.80$ | Ranking signal-to-noise: measures if relevant chunks are ranked higher in the retrieved list. |
+| **`context_recall`** | $\ge 0.80$ | Retrieval coverage: checks if all key facts from the reference ground truth were captured in retrieved contexts. |
 
 ---
 
 ## Running Smoke Tests
 
-Smoke tests validate repository structure, dataset schemas, and module imports **without invoking external APIs or consuming tokens**:
+Smoke tests validate file schemas, imports, and interface formatting **offline without API token costs or live MCP servers**:
 
 ```bash
-# Using pytest
 pytest
-
-# Or running the test module directly
+```
+*Or execute standalone:*
+```bash
 python tests/test_smoke.py
 ```
-
----
-
-## Next Steps: Connecting Real RAG / MCP
-
-`rag.py` currently exports `query_rag(query: str) -> dict`. To evaluate a live retrieval pipeline or MCP server:
-1. Update `rag.py` to route queries to your MCP client or vector database retriever.
-2. Generate an evaluation dataset using your pipeline's outputs.
-3. Run `python evals.py` to benchmark performance over iterations.

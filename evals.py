@@ -1,13 +1,12 @@
-"""RAGAS Evaluation Runner.
+"""RAGAS Evaluation Runner with Live MCP Retrieval.
 
-Loads evaluation datasets and executes RAGAS metric evaluations for:
+Loads questions and reference ground truth from sample datasets,
+queries the real MCP RAG server dynamically for retrieved contexts
+and dummy answers, and benchmarks quality using 4 core RAGAS metrics:
 - faithfulness
 - answer_relevancy
 - context_precision
 - context_recall
-
-Outputs a metric summary table, writes per-row results to CSV,
-and flags low-performing samples below target thresholds.
 """
 
 import json
@@ -16,6 +15,18 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Load environment variables from .env if present
+try:
+    from dotenv import load_dotenv
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
 
 # Lazy / conditional imports so that smoke tests and CI can import evals
 # without requiring runtime API calls or pre-installed heavy dependencies.
@@ -39,6 +50,7 @@ except ImportError:
     context_precision = None  # type: ignore
     context_recall = None  # type: ignore
 
+import rag
 
 DATASET_PATH = Path(__file__).parent / "evals" / "datasets" / "sample.jsonl"
 EXPERIMENTS_DIR = Path(__file__).parent / "evals" / "experiments"
@@ -53,27 +65,29 @@ def check_environment() -> str:
     if not api_key:
         sys.exit(
             "Error: OPENAI_API_KEY environment variable is missing.\n\n"
-            "Please set OPENAI_API_KEY before running evaluations.\n"
-            "Example:\n"
+            "Please configure OPENAI_API_KEY in your .env file or environment:\n"
+            "  Example in .env:     OPENAI_API_KEY=sk-...\n"
             "  Windows PowerShell: $env:OPENAI_API_KEY=\"sk-...\"\n"
-            "  Windows CMD:        set OPENAI_API_KEY=sk-...\n"
             "  Linux / macOS:      export OPENAI_API_KEY=\"sk-...\""
         )
     return api_key
 
 
-def load_dataset_from_jsonl(file_path: Path) -> Any:
-    """Load sample JSONL dataset into a Hugging Face Dataset.
+def build_evaluation_dataset(sample_file: Path) -> Any:
+    """Read questions and ground truth from sample.jsonl and query MCP server dynamically.
 
-    Populates both modern Ragas fields (user_input, response, retrieved_contexts, reference)
-    and legacy Ragas fields (question, answer, contexts, ground_truth) to maintain
-    seamless cross-version compatibility.
+    Iterates over each question in sample.jsonl, calls rag.query(question), and
+    dynamically constructs the evaluation dataset:
+    - `user_input`: Question from JSONL
+    - `response`: Dummy concatenated top-3 chunks from rag.query()
+    - `retrieved_contexts`: Retrieved context chunks from MCP
+    - `reference`: Ground truth reference from JSONL
 
     Args:
-        file_path: Path to the .jsonl dataset file.
+        sample_file: Path to sample.jsonl file.
 
     Returns:
-        datasets.Dataset: The loaded dataset.
+        datasets.Dataset: Evaluation dataset ready for Ragas.
     """
     if Dataset is None:
         raise ImportError(
@@ -81,40 +95,57 @@ def load_dataset_from_jsonl(file_path: Path) -> Any:
             "Install it via: pip install datasets"
         )
 
-    if not file_path.exists():
-        sys.exit(f"Error: Dataset file not found at {file_path}")
+    if not sample_file.exists():
+        sys.exit(f"Error: Dataset file not found at {sample_file}")
 
-    records: List[Dict[str, Any]] = []
-    with open(file_path, "r", encoding="utf-8") as f:
+    samples_raw: List[Dict[str, Any]] = []
+    with open(sample_file, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, start=1):
             line = line.strip()
             if not line:
                 continue
             try:
-                item = json.loads(line)
+                samples_raw.append(json.loads(line))
             except json.JSONDecodeError as err:
-                sys.exit(f"Error: Invalid JSON on line {line_num} in {file_path}: {err}")
+                sys.exit(f"Error: Invalid JSON on line {line_num} in {sample_file}: {err}")
 
-            user_input = item.get("user_input", item.get("question", ""))
-            response = item.get("response", item.get("answer", ""))
-            retrieved_contexts = item.get("retrieved_contexts", item.get("contexts", []))
-            reference = item.get("reference", item.get("ground_truth", ""))
+    if not samples_raw:
+        sys.exit(f"Error: Dataset at {sample_file} is empty.")
 
-            # Support both current Ragas and legacy schemas
-            record = {
-                "user_input": user_input,
-                "response": response,
-                "retrieved_contexts": retrieved_contexts,
-                "reference": reference,
-                "question": user_input,
-                "answer": response,
-                "contexts": retrieved_contexts,
-                "ground_truth": reference,
-            }
-            records.append(record)
+    print(f"Loaded {len(samples_raw)} question-reference pairs from {sample_file}")
+    print("Querying MCP RAG server dynamically for real contexts...\n")
 
-    if not records:
-        sys.exit(f"Error: Dataset at {file_path} is empty.")
+    records: List[Dict[str, Any]] = []
+    for idx, item in enumerate(samples_raw, start=1):
+        question = item.get("user_input", item.get("question", "")).strip()
+        reference = item.get("reference", item.get("ground_truth", "")).strip()
+
+        if not question:
+            continue
+
+        print(f"[{idx}/{len(samples_raw)}] Querying: '{question}'")
+
+        # Calls rag.query(question) which queries the live MCP server
+        rag_output = rag.query(question)
+
+        dummy_answer = rag_output.get("answer", rag_output.get("response", ""))
+        contexts = rag_output.get("contexts", rag_output.get("retrieved_contexts", []))
+
+        print(f"       -> Retrieved {len(contexts)} contexts from MCP.")
+
+        # Construct evaluation row with both modern and legacy Ragas keys
+        record = {
+            "user_input": question,
+            "response": dummy_answer,
+            "retrieved_contexts": contexts,
+            "reference": reference,
+            # Legacy aliases
+            "question": question,
+            "answer": dummy_answer,
+            "contexts": contexts,
+            "ground_truth": reference,
+        }
+        records.append(record)
 
     return Dataset.from_list(records)
 
@@ -123,11 +154,11 @@ def run_eval(
     dataset_path: Path = DATASET_PATH,
     output_dir: Path = EXPERIMENTS_DIR,
 ) -> Any:
-    """Execute Ragas evaluation on the dataset and print summary statistics.
+    """Execute RAGAS evaluation against real MCP retrieved data.
 
     Args:
-        dataset_path: Path to the JSONL dataset.
-        output_dir: Directory where per-row CSV results will be saved.
+        dataset_path: Path to the seed JSONL dataset containing queries and references.
+        output_dir: Output directory for benchmark run CSV results.
 
     Returns:
         Evaluation results object from ragas.evaluate().
@@ -142,11 +173,10 @@ def run_eval(
             "Install all dependencies via: pip install -e . or pip install ragas datasets openai"
         )
 
-    print(f"Loading evaluation dataset from: {dataset_path}")
-    dataset = load_dataset_from_jsonl(dataset_path)
-    print(f"Loaded {len(dataset)} evaluation samples.")
+    # 3. Dynamically build dataset by querying MCP server
+    dataset = build_evaluation_dataset(dataset_path)
 
-    # 3. Define the four required metrics
+    # 4. Define the 4 required RAGAS metrics
     metrics = [
         faithfulness,
         answer_relevancy,
@@ -168,7 +198,7 @@ def run_eval(
 
     df = result.to_pandas()
 
-    # 4. Print Summary Table (Metric Name, Mean Score, Min Score)
+    # 5. Print Summary Table (Metric Name, Mean Score, Min Score)
     metric_names = [
         "faithfulness",
         "answer_relevancy",
@@ -188,14 +218,14 @@ def run_eval(
             print(f"{m:<22} | {'N/A':<14} | {'N/A':<14}")
     print("=" * 58)
 
-    # 5. Save full per-row results to evals/experiments/run_<timestamp>.csv
+    # 6. Save full per-row results to evals/experiments/run_<timestamp>.csv
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_csv = output_dir / f"run_{timestamp}.csv"
     df.to_csv(output_csv, index=False)
     print(f"\n[OK] Full per-row results saved to: {output_csv}")
 
-    # 6. Flag any row where faithfulness < 0.7 or context_recall < 0.8
+    # 7. Flag any row where faithfulness < 0.7 or context_recall < 0.8
     if "faithfulness" in df.columns and "context_recall" in df.columns:
         flagged_mask = (df["faithfulness"] < 0.7) | (df["context_recall"] < 0.8)
         flagged_df = df[flagged_mask]
