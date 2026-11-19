@@ -1,7 +1,11 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
+*.pyc
 *$py.class
+
+# FAISS Vector Index
+faiss_index/
 
 # C extensions
 *.so

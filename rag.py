@@ -22,26 +22,25 @@ from ingest import INDEX_DIR, ResilientOpenAIEmbeddings
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
-# Strict Question-Answering Prompt Template as required
-STRICT_PROMPT_TEMPLATE = """You are a question-answering assistant.
+# Strict Question-Answering Prompt Template as required by Phase 6
+STRICT_PROMPT_TEMPLATE = """You are a retrieval QA assistant.
 
-Answer ONLY using the supplied context.
+Use ONLY the supplied context.
 
-Do not use outside knowledge.
+Never use prior knowledge.
 
-If the answer cannot be found in the provided context, respond exactly with:
+If the answer cannot be found in the context, respond exactly:
 
 "I don't know based on the provided documents."
 
 Context:
-
 {context}
 
 Question:
-
 {question}"""
 
 # Global in-memory cache for FAISS index and components
+_db: Optional[FAISS] = None
 _VECTORSTORE: Optional[FAISS] = None
 _EMBEDDINGS: Optional[ResilientOpenAIEmbeddings] = None
 _LLM: Optional[ChatOpenAI] = None
@@ -54,19 +53,12 @@ def load_environment() -> str:
         str: The retrieved OpenAI API key.
 
     Raises:
-        ValueError: If OPENAI_API_KEY is not defined in the environment.
+        RuntimeError: If OPENAI_API_KEY is missing or empty.
     """
-    if ENV_FILE.exists():
-        load_dotenv(dotenv_path=ENV_FILE)
-    else:
-        load_dotenv()
-
+    load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError(
-            "OPENAI_API_KEY environment variable is missing. "
-            "Please configure OPENAI_API_KEY in your .env file."
-        )
+        raise RuntimeError("OPENAI_API_KEY is missing.")
     return api_key.strip()
 
 
@@ -74,11 +66,14 @@ def get_embeddings() -> ResilientOpenAIEmbeddings:
     """Get or initialize cached OpenAIEmbeddings model."""
     global _EMBEDDINGS
     if _EMBEDDINGS is None:
-        api_key = load_environment()
-        _EMBEDDINGS = ResilientOpenAIEmbeddings(
-            model="text-embedding-3-small",
-            openai_api_key=api_key,
-        )
+        try:
+            api_key = load_environment()
+            _EMBEDDINGS = ResilientOpenAIEmbeddings(
+                model="text-embedding-3-small",
+                openai_api_key=api_key,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Failed to initialize OpenAIEmbeddings: {exc}") from exc
     return _EMBEDDINGS
 
 
@@ -95,33 +90,41 @@ def get_vectorstore(index_path: Path = INDEX_DIR) -> FAISS:
 
     Raises:
         FileNotFoundError: If the FAISS index does not exist on disk.
+        RuntimeError: If index deserialization or loading fails.
     """
-    global _VECTORSTORE
-    if _VECTORSTORE is None:
+    global _db, _VECTORSTORE
+    if _db is None:
         if not index_path.exists():
             raise FileNotFoundError(
                 f"FAISS index not found at '{index_path}'. "
                 "Please run `python ingest.py` first to generate the index."
             )
-        embeddings = get_embeddings()
-        _VECTORSTORE = FAISS.load_local(
-            str(index_path),
-            embeddings,
-            allow_dangerous_deserialization=True,
-        )
-    return _VECTORSTORE
+        try:
+            embeddings = get_embeddings()
+            _db = FAISS.load_local(
+                str(index_path),
+                embeddings,
+                allow_dangerous_deserialization=True,
+            )
+            _VECTORSTORE = _db
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load FAISS index from '{index_path}': {exc}") from exc
+    return _db
 
 
 def get_llm() -> ChatOpenAI:
     """Get or initialize cached ChatOpenAI model."""
     global _LLM
     if _LLM is None:
-        api_key = load_environment()
-        _LLM = ChatOpenAI(
-            model="gpt-4o-mini",
-            openai_api_key=api_key,
-            temperature=0.0,
-        )
+        try:
+            api_key = load_environment()
+            _LLM = ChatOpenAI(
+                model="gpt-4o-mini",
+                openai_api_key=api_key,
+                temperature=0.0,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Failed to initialize ChatOpenAI: {exc}") from exc
     return _LLM
 
 
@@ -156,16 +159,13 @@ def generate_offline_answer(question: str, context: str) -> str:
         top_sentences = [s for _, s in scored_sentences[:3]]
         return " ".join(top_sentences)
 
-    if sentences:
-        return sentences[0]
-
     return "I don't know based on the provided documents."
 
 
 def query(question: str) -> Dict[str, Any]:
     """Execute end-to-end RAG query pipeline.
 
-    Step 1: Retrieve the Top 4 most relevant chunks from FAISS.
+    Step 1: Retrieve the Top 4 most relevant chunks from FAISS (search_kwargs={"k": 4}).
     Step 2: Create strict prompt enforcing grounded answers.
     Step 3: Call ChatOpenAI(model="gpt-4o-mini") to generate response.
     Step 4: Return dictionary containing answer and ranking-ordered contexts.
@@ -186,9 +186,14 @@ def query(question: str) -> Dict[str, Any]:
             "contexts": [],
         }
 
-    # Step 1: Retrieve top 4 most relevant chunks
-    vectorstore = get_vectorstore()
-    retrieved_docs: List[Document] = vectorstore.similarity_search(question, k=4)
+    # Step 1: Retrieve top 4 most relevant chunks using explicit search_kwargs={"k": 4}
+    try:
+        vectorstore = get_vectorstore()
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
+        retrieved_docs: List[Document] = retriever.invoke(question.strip())
+    except Exception as exc:
+        raise RuntimeError(f"Error during context retrieval: {exc}") from exc
+
     contexts: List[str] = [doc.page_content.strip() for doc in retrieved_docs]
 
     # Step 2: Build strict prompt
@@ -196,8 +201,8 @@ def query(question: str) -> Dict[str, Any]:
     prompt = STRICT_PROMPT_TEMPLATE.format(context=context_str, question=question.strip())
 
     # Step 3: Call ChatOpenAI
-    llm = get_llm()
     try:
+        llm = get_llm()
         response = llm.invoke(prompt)
         answer = response.content if hasattr(response, "content") else str(response)
         answer = str(answer).strip()

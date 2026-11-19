@@ -37,7 +37,7 @@ def load_environment() -> str:
         str: The retrieved OpenAI API key.
 
     Raises:
-        ValueError: If OPENAI_API_KEY is not defined in the environment.
+        RuntimeError: If OPENAI_API_KEY is missing or empty.
     """
     if ENV_FILE.exists():
         load_dotenv(dotenv_path=ENV_FILE)
@@ -46,10 +46,7 @@ def load_environment() -> str:
 
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError(
-            "OPENAI_API_KEY environment variable is missing. "
-            "Please configure OPENAI_API_KEY in your .env file."
-        )
+        raise RuntimeError("OPENAI_API_KEY is missing.")
     return api_key.strip()
 
 

@@ -45,26 +45,24 @@ rag-eval-ragas/
 - Serializes the vector database locally to `./faiss_index`.
 
 ### 2. RAG Query Pipeline (`rag.py`)
-- **One-time Loading & Memory Caching**: Loads the FAISS vector database from `./faiss_index` only once and keeps it in memory across queries.
-- **Top-4 Chunk Retrieval**: Retrieves the top 4 most relevant context chunks for any incoming user question.
+- **One-time Loading & Memory Caching**: Loads the FAISS vector database from `./faiss_index` only once (`_db` cache) and keeps it in memory across queries.
+- **Top-4 Chunk Retrieval**: Retrieves the top 4 most relevant context chunks for any incoming user question using `search_kwargs={"k": 4}` in strict ranking order.
 - **Strict Grounded Prompt**:
   ```
-  You are a question-answering assistant.
+  You are a retrieval QA assistant.
 
-  Answer ONLY using the supplied context.
+  Use ONLY the supplied context.
 
-  Do not use outside knowledge.
+  Never use prior knowledge.
 
-  If the answer cannot be found in the provided context, respond exactly with:
+  If the answer cannot be found in the context, respond exactly:
 
   "I don't know based on the provided documents."
 
   Context:
-
   {context}
 
   Question:
-
   {question}
   ```
 - **Language Model**: Uses `ChatOpenAI(model="gpt-4o-mini")` with zero temperature for grounded synthesis.
