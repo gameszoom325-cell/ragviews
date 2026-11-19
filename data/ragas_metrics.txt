@@ -1,0 +1,19 @@
+RAGAS Evaluation Framework and Core Metrics
+
+Ragas (Retrieval Augmented Generation Assessment) is an open-source evaluation framework designed to benchmark and evaluate Retrieval-Augmented Generation pipelines without requiring expensive human annotations. It introduces a comprehensive set of automated metrics that isolate and evaluate both the retriever component and the generator component independently.
+
+The Four Core Metrics in Ragas:
+
+1. Faithfulness (Generation Metric):
+Faithfulness measures the factual consistency of the generated response against the retrieved context. It identifies every factual claim in the generated answer and checks whether each claim is directly supported by the retrieved contexts. A faithful answer does not fabricate facts or hallucinate details that cannot be inferred from the provided context chunks.
+
+2. Answer Relevancy (Generation Metric):
+Answer relevancy measures how directly and completely the generated response answers the user's question. Answers that are evasive, overly verbose, or discuss off-topic themes receive lower relevancy scores, even if they are factually correct.
+
+3. Context Precision (Retrieval Metric):
+Context precision evaluates the signal-to-noise ratio of the retrieval component. It measures whether all ground-truth relevant context chunks are ranked higher in the retrieved results list. Higher context precision ensures that the most useful information is placed at the top of the context window.
+
+4. Context Recall (Retrieval Metric):
+Context recall measures whether all necessary information and facts required to answer the user query were successfully retrieved in the context chunks. It compares the retrieved chunks against a reference ground-truth answer.
+
+By continuously calculating these four metrics, engineering teams can detect regressions, optimize chunking parameters, choose optimal embedding models, and benchmark RAG pipelines in continuous integration workflows.

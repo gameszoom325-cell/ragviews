@@ -1,0 +1,23 @@
+Retrieval-Augmented Generation (RAG) Architecture Overview
+
+Retrieval-Augmented Generation (RAG) is a modern AI design pattern that combines external knowledge retrieval with neural text generation. Instead of relying solely on the static parameters of a pre-trained large language model, a RAG pipeline dynamically fetches relevant context chunks from an external knowledge base and supplies them to the language model at inference time.
+
+The core workflow of a production RAG pipeline consists of two main stages: indexing and generation.
+
+During the indexing stage:
+1. Unstructured documents are collected from external data sources such as text files, markdown files, PDFs, or documentation portals.
+2. The documents are segmented into manageable chunk sizes using character or recursive splitters (such as RecursiveCharacterTextSplitter with chunk_size 500 and chunk_overlap 50).
+3. Dense vector embeddings are generated for each chunk using embedding models such as OpenAI's text-embedding-3-small.
+4. The embeddings and corresponding metadata are stored in a vector index such as FAISS (Facebook AI Similarity Search) or a dedicated vector database.
+
+During the generation stage:
+1. A user submits a query or question.
+2. The user query is converted into an embedding using the identical embedding model.
+3. The vector database performs approximate nearest neighbor search to find the top k most relevant context chunks.
+4. The retrieved context chunks are assembled into a strict prompt template alongside the user question.
+5. The language model synthesizes a concise, factual answer strictly grounded in the supplied context chunks.
+
+Benefits of RAG:
+- Minimizes hallucination by grounding model responses in verifiable reference contexts.
+- Enables private and enterprise data integration without expensive model fine-tuning.
+- Allows real-time knowledge base updates simply by updating the vector index.

@@ -1,8 +1,6 @@
-# rag-eval-ragas
+# rag-eval-ragas (ragviews)
 
-Evaluation pipeline for Retrieval-Augmented Generation (RAG) applications using [Ragas](https://github.com/explodinggradients/ragas) integrated with a live **Model Context Protocol (MCP)** RAG server.
-
-This project queries your real MCP retrieval server dynamically for context chunks, builds dummy concatenated answers (ready for LLM generation), and benchmarks retrieval/generation quality across 4 core RAGAS metrics.
+Production-ready Retrieval-Augmented Generation (RAG) system built with **LangChain**, **OpenAI**, **FAISS**, and benchmarked using **Ragas**.
 
 ---
 
@@ -10,139 +8,147 @@ This project queries your real MCP retrieval server dynamically for context chun
 
 ```
 rag-eval-ragas/
-├── rag.py                     # MCP RAG client (connects to MCP server, calls retrieval tool)
-├── evals.py                   # Dynamic RAGAS evaluation runner
-├── pyproject.toml             # Project dependencies (ragas, datasets, openai, pytest, mcp, python-dotenv)
+├── ingest.py                  # Ingests data/*.txt, splits into chunks, builds & saves FAISS index
+├── rag.py                     # Production RAG pipeline (loads cached FAISS, retrieves top 4, strict prompt, GPT-4o-mini)
+├── evals.py                   # Dynamic Ragas evaluation runner with threshold checks
+├── validate_pipeline.py       # Comprehensive Part 6 validation test suite
+├── pyproject.toml             # Project dependencies (LangChain, FAISS, OpenAI, Ragas, Pytest)
 ├── .env.example               # Environment variable configuration template
-├── README.md                  # Setup, server launch, and evaluation guide
+├── README.md                  # System documentation and usage guide
 ├── .gitignore                 # Standard Python, virtualenv, and .env ignore rules
+├── data/                      # Source knowledge base documents (.txt)
+│   ├── rag_overview.txt
+│   ├── ragas_metrics.txt
+│   └── vector_search.txt
+├── faiss_index/               # Local FAISS vector database
+│   ├── index.faiss
+│   └── index.pkl
 ├── evals/
 │   ├── datasets/
 │   │   └── sample.jsonl       # Seed evaluation questions and ground truth references
+│   ├── thresholds.json        # Pass/fail threshold definitions for Ragas metrics
 │   └── experiments/
-│       └── .gitkeep           # Run benchmark CSV artifacts (run_<timestamp>.csv)
+│       └── .gitkeep           # Run benchmark CSV artifacts
 └── tests/
-    └── test_smoke.py          # CI smoke tests (imports, schemas & mocked MCP calls)
+    └── test_smoke.py          # Smoke tests (imports, schemas & retrieval validation)
 ```
+
+---
+
+## Architecture & Workflow
+
+### 1. Ingestion Pipeline (`ingest.py`)
+- Reads all `.txt` documents from `data/` using LangChain's `DirectoryLoader` and `TextLoader`.
+- Splits text using `RecursiveCharacterTextSplitter` with `chunk_size = 500` and `chunk_overlap = 50`.
+- Generates 1536-dimensional embeddings with `OpenAIEmbeddings(model="text-embedding-3-small")`.
+- Builds a FAISS vector index, cleanly overwriting any existing index to eliminate duplicates.
+- Serializes the vector database locally to `./faiss_index`.
+
+### 2. RAG Query Pipeline (`rag.py`)
+- **One-time Loading & Memory Caching**: Loads the FAISS vector database from `./faiss_index` only once and keeps it in memory across queries.
+- **Top-4 Chunk Retrieval**: Retrieves the top 4 most relevant context chunks for any incoming user question.
+- **Strict Grounded Prompt**:
+  ```
+  You are a question-answering assistant.
+
+  Answer ONLY using the supplied context.
+
+  Do not use outside knowledge.
+
+  If the answer cannot be found in the provided context, respond exactly with:
+
+  "I don't know based on the provided documents."
+
+  Context:
+
+  {context}
+
+  Question:
+
+  {question}
+  ```
+- **Language Model**: Uses `ChatOpenAI(model="gpt-4o-mini")` with zero temperature for grounded synthesis.
+- **Return Contract**:
+  ```python
+  {
+      "answer": "...",
+      "contexts": [
+          "...",
+          "...",
+          "...",
+          "..."
+      ]
+  }
+  ```
 
 ---
 
 ## Configuration & Environment Variables
 
-Create a `.env` file in the project root (you can copy `.env.example`):
+Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
 ```
 
-Set the required environment variables in `.env`:
-
-| Variable | Required | Default | Description |
-| :--- | :---: | :--- | :--- |
-| `OPENAI_API_KEY` | **Yes** | — | OpenAI API key used by Ragas LLM evaluators. |
-| `MCP_SERVER_URL` | **Yes** | `http://localhost:8000/mcp` | SSE endpoint URL or stdio command for your MCP server. |
-| `MCP_TOOL_NAME` | No | Auto-detected | Specific retrieval tool name (auto-discovers `retrieve`, `search`, etc.). |
-| `MCP_TIMEOUT` | No | `30` | Per-query timeout in seconds. |
-
-### Example `.env`
+Configure your OpenAI API key in `.env`:
 
 ```ini
 OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx
-MCP_SERVER_URL=http://localhost:8000/mcp
-MCP_TIMEOUT=30
 ```
-
-> **Note**: If your MCP server runs via stdio rather than HTTP SSE, you can set `MCP_SERVER_URL` to the launch command, e.g.:
-> ```ini
-> MCP_SERVER_URL=python server.py
-> ```
 
 ---
 
-## Starting Your MCP RAG Server
+## Installation & Execution
 
-Before running evaluations, ensure your MCP server is running and accessible:
-
-```bash
-# In your MCP server directory / environment:
-python server.py
-```
-
-*By default, the client expects the server to listen on `http://localhost:8000/mcp` or as configured in `MCP_SERVER_URL`.*
-
-If the server is unreachable or offline, `rag.py` and `evals.py` will catch the error and display an actionable troubleshooting message rather than crashing with an unhandled exception.
-
----
-
-## Installation & Setup
-
-### 1. Prerequisites
-- Python 3.10+
-- An OpenAI API key
-- A running MCP RAG server
-
-### 2. Setup Virtual Environment
+### 1. Install Dependencies
 
 ```bash
-# Create virtual environment
-python -m venv .venv
-
-# Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-
-# Linux / macOS:
-source .venv/bin/activate
-
-# Install all dependencies (including mcp and python-dotenv)
+# In virtual environment:
 pip install -e .
 ```
 
-Or install dependencies directly:
+Or install with pip:
+
 ```bash
-pip install ragas datasets openai pytest mcp python-dotenv
+pip install langchain langchain-openai langchain-community faiss-cpu python-dotenv ragas datasets openai pytest
 ```
 
----
-
-## Running Evaluations
-
-Once your MCP server is up and `.env` is configured:
+### 2. Build the FAISS Vector Database
 
 ```bash
-python evals.py
+python ingest.py
 ```
 
-### Execution Flow:
-1. **Validation**: Confirms `OPENAI_API_KEY` is set.
-2. **Dynamic Ingestion**: Reads question-reference pairs from `evals/datasets/sample.jsonl`.
-3. **Live MCP Querying**: For every question, calls `rag.query(question)` with a 30s timeout to fetch live retrieved chunks.
-4. **Answer Synthesis**: Formulates dummy answers by concatenating the top 3 retrieved chunks.
-5. **Ragas Evaluation**: Computes the 4 core metrics using the OpenAI backend.
-6. **Summary Table**: Prints a summary with Mean Score and Min Score per metric.
-7. **CSV Export**: Writes detailed per-sample scores to `evals/experiments/run_<YYYYMMDD_HHMMSS>.csv`.
-8. **Threshold Alerts**: Flags any sample where `faithfulness < 0.7` or `context_recall < 0.8` for debugging.
+Output:
+```
+Loading documents...
+Loaded 3 document(s) from C:\MY PROJECTS\rag-eval-ragas\data.
+Splitting...
+Created 16 text chunk(s).
+Creating embeddings...
+Saving FAISS...
+Done.
+```
 
----
-
-## RAGAS Metrics Reference
-
-| Metric | Target | Description |
-| :--- | :---: | :--- |
-| **`faithfulness`** | $\ge 0.70$ | Factual consistency: checks whether claims in the generated response are grounded in the retrieved context chunks. |
-| **`answer_relevancy`** | $\ge 0.80$ | Relevance: evaluates whether the response directly addresses the user question without superfluous noise. |
-| **`context_precision`** | $\ge 0.80$ | Ranking signal-to-noise: measures if relevant chunks are ranked higher in the retrieved list. |
-| **`context_recall`** | $\ge 0.80$ | Retrieval coverage: checks if all key facts from the reference ground truth were captured in retrieved contexts. |
-
----
-
-## Running Smoke Tests
-
-Smoke tests validate file schemas, imports, and interface formatting **offline without API token costs or live MCP servers**:
+### 3. Run a Query
 
 ```bash
+python rag.py
+```
+
+### 4. Run Ragas Evaluations
+
+```bash
+python evals.py --check
+```
+
+### 5. Run Verification & Tests
+
+```bash
+# Part 6 comprehensive validation
+python validate_pipeline.py
+
+# Pytest smoke test suite
 pytest
-```
-*Or execute standalone:*
-```bash
-python tests/test_smoke.py
 ```

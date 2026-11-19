@@ -1,0 +1,16 @@
+FAISS Vector Indexing and Semantic Similarity Search
+
+FAISS (Facebook AI Similarity Search) is a library for efficient similarity search and clustering of dense vectors. It provides algorithms that search in sets of vectors of any size, up to ones that exceed available RAM, and includes implementations of exact search (Flat L2, Inner Product) and approximate search (IVF, HNSW, PQ).
+
+In modern LangChain RAG pipelines, FAISS acts as a lightweight, high-performance in-process vector store. The vector store holds chunk embeddings and their corresponding document text.
+
+Key Vector Operations:
+1. Index Creation: Embeddings generated for document chunks are ingested into the FAISS index structure.
+2. Serialization: The entire FAISS vector database can be serialized locally to a folder (such as ./faiss_index) containing the binary index file (index.faiss) and the serialized docstore pickle (index.pkl).
+3. Deserialization: Applications can load the precomputed FAISS vector database directly from disk on startup without incurring re-embedding costs.
+4. Nearest Neighbor Querying: Given a query embedding vector, FAISS calculates vector similarity scores (e.g., cosine similarity or Euclidean distance) and returns the top k closest matching document chunks.
+
+Best Practices for FAISS in Production:
+- Ingest documents once ahead of time and cache the deserialized FAISS instance in memory across queries.
+- Cleanly overwrite existing index directories during re-ingestion to eliminate stale vectors and duplicate chunks.
+- Use standardized embedding dimensions (such as 1536 dimensions for text-embedding-3-small) across both indexing and querying.

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-eval-ragas"
-version = "0.2.0"
-description = "RAGAS evaluation pipeline with real MCP RAG retrieval integration"
+version = "0.3.0"
+description = "Production-ready LangChain RAG pipeline with FAISS vector store and Ragas evaluation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,6 +15,10 @@ dependencies = [
     "pytest",
     "mcp",
     "python-dotenv",
+    "langchain",
+    "langchain-openai",
+    "langchain-community",
+    "faiss-cpu",
 ]
 
 [tool.pytest.ini_options]
