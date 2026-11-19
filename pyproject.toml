@@ -23,6 +23,7 @@ dependencies = [
     "langchain-community",
     "faiss-cpu",
     "streamlit",
+    "pypdf",
 ]
 
 [project.optional-dependencies]

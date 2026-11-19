@@ -210,6 +210,30 @@ def build_faiss_index(
     return vectorstore
 
 
+def create_in_memory_vectorstore(
+    chunks: List[Document],
+    api_key: Optional[str] = None,
+) -> FAISS:
+    """Build an in-memory FAISS vector database without persisting to disk.
+
+    Args:
+        chunks: Document chunks to embed.
+        api_key: Optional OpenAI API key.
+
+    Returns:
+        FAISS: In-memory vector database instance.
+    """
+    cfg = get_config()
+    if api_key is None:
+        api_key = load_environment()
+
+    embeddings = ResilientOpenAIEmbeddings(
+        model=cfg.embedding_model,
+        api_key=SecretStr(api_key),
+    )
+    return FAISS.from_documents(chunks, embeddings)
+
+
 def run_ingestion(
     data_dir: Path = DATA_DIR,
     index_dir: Path = INDEX_DIR,

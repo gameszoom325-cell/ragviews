@@ -203,22 +203,27 @@ def generate_offline_answer(question: str, context: str) -> str:
     return cfg.fallback_answer
 
 
-def retrieve_contexts(question: str, top_k: Optional[int] = None) -> List[Document]:
+def retrieve_contexts(
+    question: str,
+    top_k: Optional[int] = None,
+    vectorstore: Optional[FAISS] = None,
+) -> List[Document]:
     """Retrieve top-k contexts for question, deduplicated in ranking order.
 
     Args:
         question: Query string.
         top_k: Number of chunks to retrieve (defaults to config top_k).
+        vectorstore: Optional FAISS vector database instance. If None, uses cached global index.
 
     Returns:
         List[Document]: Deduplicated ranked list of retrieved Document objects.
     """
     cfg = get_config()
     k = top_k if top_k is not None else cfg.top_k
+    vs = vectorstore if vectorstore is not None else get_vectorstore()
 
     try:
-        vectorstore = get_vectorstore()
-        retriever = vectorstore.as_retriever(search_kwargs={"k": k})
+        retriever = vs.as_retriever(search_kwargs={"k": k})
         docs: List[Document] = retriever.invoke(question)
     except Exception as exc:
         logger.error("Error during context retrieval: %s", exc)
@@ -236,7 +241,7 @@ def retrieve_contexts(question: str, top_k: Optional[int] = None) -> List[Docume
     return deduped_docs
 
 
-def query(question: str) -> Dict[str, Any]:
+def query(question: str, vectorstore: Optional[FAISS] = None) -> Dict[str, Any]:
     """Execute end-to-end RAG query pipeline.
 
     Step 1: Sanitize and validate user query.
@@ -247,6 +252,7 @@ def query(question: str) -> Dict[str, Any]:
 
     Args:
         question: User query string.
+        vectorstore: Optional FAISS vector database instance. If None, uses cached global index.
 
     Returns:
         Dict[str, Any]:
@@ -273,7 +279,7 @@ def query(question: str) -> Dict[str, Any]:
         }
 
     # Step 1: Retrieve top 4 most relevant chunks
-    retrieved_docs = retrieve_contexts(cleaned_question, top_k=cfg.top_k)
+    retrieved_docs = retrieve_contexts(cleaned_question, top_k=cfg.top_k, vectorstore=vectorstore)
     contexts: List[str] = [doc.page_content.strip() for doc in retrieved_docs]
 
     # Step 2: Build strict prompt
