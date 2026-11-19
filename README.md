@@ -56,6 +56,7 @@ rag-eval-ragas/
 │   ├── test_rag.py              # Retrieval & synthesis tests
 │   ├── test_security.py         # Query sanitization & path traversal tests
 │   └── test_smoke.py            # Backward-compatibility smoke tests
+├── app.py                       # Streamlit web user interface
 ├── benchmark.py                 # Latency, throughput, and memory profiling suite
 ├── config.py                    # Centralized, typed, environment-overridable settings
 ├── evals.py                     # Dynamic Ragas evaluation runner
@@ -167,7 +168,15 @@ python rag.py
 }
 ```
 
-### 3. Run Ragas Evaluation Suite
+### 3. Launch Streamlit Web UI
+
+```bash
+streamlit run app.py
+```
+
+Opens an interactive web search interface at `http://localhost:8501`.
+
+### 4. Run Ragas Evaluation Suite
 
 ```bash
 python evals.py --check

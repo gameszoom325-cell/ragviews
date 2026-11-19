@@ -19,6 +19,7 @@ dependencies = [
     "langchain-openai",
     "langchain-community",
     "faiss-cpu",
+    "streamlit",
 ]
 
 [project.optional-dependencies]
