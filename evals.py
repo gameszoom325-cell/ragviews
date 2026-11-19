@@ -14,12 +14,11 @@ writes failure diagnostics to evals/last_failure.json, and exits with code 0 or 
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 # Load environment variables from .env if present
 try:
@@ -41,10 +40,43 @@ THRESHOLDS_PATH = Path(__file__).parent / "evals" / "thresholds.json"
 LAST_FAILURE_PATH = Path(__file__).parent / "evals" / "last_failure.json"
 
 STOP_WORDS = {
-    "what", "is", "the", "of", "and", "a", "an", "in", "to", "for",
-    "how", "does", "can", "are", "with", "without", "from", "on", "it",
-    "by", "or", "as", "at", "be", "this", "that", "which", "there",
-    "have", "has", "do", "you", "your", "they", "their", "we", "our"
+    "what",
+    "is",
+    "the",
+    "of",
+    "and",
+    "a",
+    "an",
+    "in",
+    "to",
+    "for",
+    "how",
+    "does",
+    "can",
+    "are",
+    "with",
+    "without",
+    "from",
+    "on",
+    "it",
+    "by",
+    "or",
+    "as",
+    "at",
+    "be",
+    "this",
+    "that",
+    "which",
+    "there",
+    "have",
+    "has",
+    "do",
+    "you",
+    "your",
+    "they",
+    "their",
+    "we",
+    "our",
 }
 
 
@@ -103,7 +135,7 @@ def compute_row_metrics(
     if not resp_paragraphs:
         resp_paragraphs = [response]
 
-    supported_count = 0
+    supported_count: float = 0.0
     for para in resp_paragraphs:
         para_tokens = set(_tokenize(para))
         overlap_with_q = len(para_tokens & q_tokens) / max(1, len(q_tokens))
@@ -197,8 +229,7 @@ def run_evaluation(
         eval_rows.append(row_data)
 
     mean_scores = {
-        m: round(sum(scores) / max(1, len(scores)), 4)
-        for m, scores in metric_accum.items()
+        m: round(sum(scores) / max(1, len(scores)), 4) for m, scores in metric_accum.items()
     }
 
     # Print summary table
@@ -217,6 +248,7 @@ def run_evaluation(
     output_csv = output_dir / f"run_{timestamp}.csv"
 
     import csv
+
     if eval_rows:
         keys = list(eval_rows[0].keys())
         with open(output_csv, "w", newline="", encoding="utf-8") as f:

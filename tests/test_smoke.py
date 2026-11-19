@@ -10,19 +10,18 @@ Validates that:
 7. `evals.py` imports cleanly without executing unprompted API calls.
 """
 
-from pathlib import Path
-import os
-import sys
 import pytest
+import sys
+from pathlib import Path
 
 # Ensure repository root is on sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import evals
 import ingest
 import rag
-import evals
 
 
 def test_ingest_module_imports():
@@ -66,7 +65,7 @@ def test_strict_prompt_template():
         "You are a retrieval QA assistant.",
         "Use ONLY the supplied context.",
         "Never use prior knowledge.",
-        'If the answer cannot be found in the context, respond exactly:',
+        "If the answer cannot be found in the context, respond exactly:",
         '"I don\'t know based on the provided documents."',
         "Context:",
         "{context}",

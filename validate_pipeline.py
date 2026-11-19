@@ -15,9 +15,10 @@ Validates all key checkpoints:
 
 from __future__ import annotations
 
+import tomllib
+
 import os
 import subprocess
-import tomllib
 from pathlib import Path
 
 # Paths
@@ -33,11 +34,13 @@ def validate_all() -> None:
 
     # Checkpoint 1: ingest.py imports correctly
     import ingest
+
     assert hasattr(ingest, "run_ingestion"), "ingest.py missing run_ingestion"
     print("✓ Checkpoint 1: ingest.py imports correctly")
 
     # Checkpoint 2: rag.py imports correctly
     import rag
+
     assert hasattr(rag, "query"), "rag.py missing query"
     print("✓ Checkpoint 2: rag.py imports correctly")
 
@@ -73,8 +76,12 @@ def validate_all() -> None:
     llm = rag.get_llm()
     assert llm.model_name == "gpt-4o-mini", f"Expected gpt-4o-mini, got {llm.model_name}"
     embeddings = rag.get_embeddings()
-    assert embeddings.model == "text-embedding-3-small", f"Expected text-embedding-3-small, got {embeddings.model}"
-    print(f"✓ Checkpoint 6: OpenAI models initialize (Chat: {llm.model_name}, Embeddings: {embeddings.model})")
+    assert (
+        embeddings.model == "text-embedding-3-small"
+    ), f"Expected text-embedding-3-small, got {embeddings.model}"
+    print(
+        f"✓ Checkpoint 6: OpenAI models initialize (Chat: {llm.model_name}, Embeddings: {embeddings.model})"
+    )
 
     # Checkpoint 7: query() returns { answer, contexts }
     res = rag.query("What is Retrieval-Augmented Generation?")
@@ -89,7 +96,9 @@ def validate_all() -> None:
 
     # Checkpoint 8: Strict grounding prompt template verification
     expected_prompt_snippet = "You are a retrieval QA assistant."
-    assert expected_prompt_snippet in rag.STRICT_PROMPT_TEMPLATE, "rag.py prompt does not match Phase 6 specification"
+    assert (
+        expected_prompt_snippet in rag.STRICT_PROMPT_TEMPLATE
+    ), "rag.py prompt does not match Phase 6 specification"
     assert "Use ONLY the supplied context." in rag.STRICT_PROMPT_TEMPLATE
     assert "Never use prior knowledge." in rag.STRICT_PROMPT_TEMPLATE
     assert "I don't know based on the provided documents." in rag.STRICT_PROMPT_TEMPLATE
@@ -100,13 +109,11 @@ def validate_all() -> None:
     try:
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
-        raised = False
         try:
             # Test without .env override
             rag.load_environment()
         except RuntimeError as err:
             assert "OPENAI_API_KEY is missing." in str(err)
-            raised = True
         except Exception:
             pass  # If .env exists and reloaded it
         print("✓ Checkpoint 9: OPENAI_API_KEY validation check passed")

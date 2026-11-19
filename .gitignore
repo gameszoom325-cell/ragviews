@@ -44,9 +44,13 @@ venv.bak/
 # Pytest & Coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
+
+# Benchmarking
+benchmark_results.json
 
 # IDE & Editor files
 .vscode/
